@@ -7,6 +7,9 @@ import re
 import docker
 import uuid
 import tempfile
+from sentence_transformers import SentenceTransformer, util
+
+
 load_dotenv()
 # === Setup Inference Client ===
 client = InferenceClient(provider="fireworks-ai", api_key=os.getenv("hf_token"))
@@ -143,8 +146,22 @@ def evaluate_mcq(choosen_answer: list, correct_answer: list):
             score += 1
     return score/len(correct_answer)
 
-def evaluate_short_answer(question: str, answer: str):
-    return "loop" in answer.lower()
+def evaluate_short_answer(user_answer: str, correct_answer: str) -> int:
+    """
+    Compares two text answers and returns:
+    - 1 if semantic similarity >= 0.5
+    - 0 if similarity < 0.5
+    """
+    # Compute embeddings
+    _model = SentenceTransformer("all-MiniLM-L6-v2")
+    embeddings = _model.encode([user_answer, correct_answer], convert_to_tensor=True)
+    # Calculate cosine similarity
+    sim_score = util.pytorch_cos_sim(embeddings[0], embeddings[1]).item()
+    
+    # Debug: print score if needed
+    # print(f"Similarity score: {sim_score:.3f}")
+    return f"{sim_score:.3f}"
+    # return 1 if sim_score >= 0.5 else 0
 
 def run_code_in_sandbox(code: str, testcases: list):
     temp_dir = tempfile.gettempdir()
@@ -220,8 +237,12 @@ def update_beliefs(tags: list, score: float):
 
     return st.session_state.beliefs
 
-def summarize_results():
-    return "User has strong knowledge in Loops and Functions."
+def summarize_results(beliefs: dict):
+    strong_knowledge = [tag for tag, belief in beliefs.items() if belief > 0.7]
+    moderate_knowledge = [tag for tag, belief in beliefs.items() if 0.3 < belief <= 0.7]
+    weak_knowledge = [tag for tag, belief in beliefs.items() if belief <= 0.3]
+
+    return f"User has strong knowledge in {', '.join(strong_knowledge)} and User has moderate knowledge in {', '.join(moderate_knowledge)} and User has weak knowledge in {', '.join(weak_knowledge)}."
 
 # def query_llm(prompt: str) -> str:
 #     try:
@@ -236,4 +257,3 @@ def summarize_results():
 #         raise RuntimeError(f"LLM query failed: {e}")
 
 
-print(run_code_in_sandbox)
