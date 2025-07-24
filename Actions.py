@@ -4,6 +4,9 @@ import streamlit as st
 import os
 from dotenv import load_dotenv
 import re
+import docker
+import uuid
+import tempfile
 load_dotenv()
 # === Setup Inference Client ===
 client = InferenceClient(provider="fireworks-ai", api_key=os.getenv("hf_token"))
@@ -19,57 +22,54 @@ def query_llm(prompt):
 
 
 def generate_tags(topic: str):
-    if "beliefs" not in st.session_state: # dividing the topic into subtopics first time
-        prompt = f"""
-    You are a helpful assistant designed to break down a learning topic into its core subtopics.
-    Given a topic, return a JSON object with two keys: "topic" and "subtopics".
+    prompt = f"""
+You are a helpful assistant designed to break down a learning topic into its core subtopics.
+Given a topic, return a JSON object with two keys: "topic" and "subtopics".
 
-    Requirements:
-    - The "topic" key should have the name of the topic.
-    - The "subtopics" key should be a list of 5 to 10 relevant subtopics necessary to evaluate knowledge in that topic.
-    - Respond ONLY with valid JSON.
+Requirements:
+- The "topic" key should have the name of the topic.
+- The "subtopics" key should be a list of 5 to 10 relevant subtopics necessary to evaluate knowledge in that topic.
+- Respond ONLY with valid JSON.
 
-    Example:
-    Input: Python  
-    Output:
-    {{
-    "topic": "Python",
-    "subtopics": ["Data Types", "Control Flow", "Functions", "OOP", "Modules", "File I/O", "Error Handling"]
-    }}
+Example:
+Input: Python  
+Output:
+{{
+"topic": "Python",
+"subtopics": ["Data Types", "Control Flow", "Functions", "OOP", "Modules", "File I/O", "Error Handling"]
+}}
 
-    Now generate for topic: {topic}
-    """
+Now generate for topic: {topic}
+"""
 
-        try:
-            raw_response = query_llm(prompt)
-            parsed = json.loads(raw_response)
-            subtopics = parsed.get("subtopics", [])
+    try:
+        raw_response = query_llm(prompt)
+        parsed = json.loads(raw_response)
+        subtopics = parsed.get("subtopics", [])
 
-            # Initialize beliefs in session state
-            if "beliefs" not in st.session_state:
-                st.session_state.beliefs = {}
+        # Initialize beliefs in session state
+        if "beliefs" not in st.session_state:
+            st.session_state.beliefs = {}
 
-            if 'question_counts' not in st.session_state:
-                st.session_state.question_counts = {}
+        if 'question_counts' not in st.session_state:
+            st.session_state.question_counts = {}
 
-            for tag in subtopics:
-                st.session_state.beliefs[tag] = 0.5 
-                st.session_state.question_counts[tag] = 0
+        for tag in subtopics:
+            st.session_state.beliefs[tag] = 0.5 
+            st.session_state.question_counts[tag] = 0
 
-            return {
-                "topic": topic,
-                "tags": subtopics,
-                "beliefs": st.session_state.beliefs
-            }
+        return {
+            "topic": topic,
+            "tags": subtopics,
+            "beliefs": st.session_state.beliefs
+        }
 
-        except Exception as e:
-            return {
-                "error": str(e),
-                "message": "Failed to generate tags or parse LLM response."
-            }
-    else:
-        pass
-        # return some tags 
+    except Exception as e:
+        return {
+            "error": str(e),
+            "message": "Failed to generate tags or parse LLM response."
+        }
+ 
 
 def generate_question(tag: list,type: str, difficulty: str = "medium"):
     prompt = f"""
@@ -109,7 +109,7 @@ If type == "Coding":
     "question": "<string>",
     "options": [],
     "type": "Coding",
-    "correct_answer": [
+    "test_cases": [
         {{
             "input": <literal or list/tuple>,
             "expected_output": <literal or list/tuple>
@@ -147,7 +147,64 @@ def evaluate_short_answer(question: str, answer: str):
     return "loop" in answer.lower()
 
 def run_code_in_sandbox(code: str, testcases: list):
-    return {"passed": 3, "failed": 0}
+    temp_dir = tempfile.gettempdir()
+    client = docker.from_env()
+
+    passed = 0
+    failed = 0
+    errors = []
+
+    for test in testcases:
+        test_input = test["input"]
+        expected_output = str(test["expected_output"]) 
+
+        filename = os.path.join(temp_dir, f"{uuid.uuid4().hex}.py")
+        with open(filename, 'w') as f:
+            f.write(code.strip() + f"\nprint(solution({test_input}))")
+
+        try:
+            result = client.containers.run(
+                image="python:3.10-slim",
+                command=f"python /code/{os.path.basename(filename)}",
+                volumes={temp_dir: {"bind": "/code", "mode": "ro"}},
+                stderr=True,
+                stdout=True,
+                network_disabled=True,
+                remove=True,
+                mem_limit="128m",
+                cpu_quota=50000,
+            )
+            result_str = result.decode().strip()
+            if result_str == expected_output:
+                passed += 1
+            else:
+                failed += 1
+                errors.append({
+                    "input": test_input,
+                    "expected": expected_output,
+                    "got": result_str
+                })
+
+        except Exception as e:
+            failed += 1
+            errors.append({
+                "input": test_input,
+                "error": str(e)
+            })
+
+        # Clean up file
+        try:
+            os.remove(filename)
+        except:
+            pass
+
+    return {
+        "passed": passed,
+        "failed": failed,
+        "total": len(testcases),
+        "details": errors
+    }
+    return passed/len(testcases)
 
 def update_beliefs(tags: list, score: float):
     for tag in tags:
@@ -179,3 +236,4 @@ def summarize_results():
 #         raise RuntimeError(f"LLM query failed: {e}")
 
 
+print(run_code_in_sandbox)
