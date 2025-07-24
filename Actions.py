@@ -19,57 +19,54 @@ def query_llm(prompt):
 
 
 def generate_tags(topic: str):
-    if "beliefs" not in st.session_state: # dividing the topic into subtopics first time
-        prompt = f"""
-    You are a helpful assistant designed to break down a learning topic into its core subtopics.
-    Given a topic, return a JSON object with two keys: "topic" and "subtopics".
+    prompt = f"""
+You are a helpful assistant designed to break down a learning topic into its core subtopics.
+Given a topic, return a JSON object with two keys: "topic" and "subtopics".
 
-    Requirements:
-    - The "topic" key should have the name of the topic.
-    - The "subtopics" key should be a list of 5 to 10 relevant subtopics necessary to evaluate knowledge in that topic.
-    - Respond ONLY with valid JSON.
+Requirements:
+- The "topic" key should have the name of the topic.
+- The "subtopics" key should be a list of 5 to 10 relevant subtopics necessary to evaluate knowledge in that topic.
+- Respond ONLY with valid JSON.
 
-    Example:
-    Input: Python  
-    Output:
-    {{
-    "topic": "Python",
-    "subtopics": ["Data Types", "Control Flow", "Functions", "OOP", "Modules", "File I/O", "Error Handling"]
-    }}
+Example:
+Input: Python  
+Output:
+{{
+"topic": "Python",
+"subtopics": ["Data Types", "Control Flow", "Functions", "OOP", "Modules", "File I/O", "Error Handling"]
+}}
 
-    Now generate for topic: {topic}
-    """
+Now generate for topic: {topic}
+"""
 
-        try:
-            raw_response = query_llm(prompt)
-            parsed = json.loads(raw_response)
-            subtopics = parsed.get("subtopics", [])
+    try:
+        raw_response = query_llm(prompt)
+        parsed = json.loads(raw_response)
+        subtopics = parsed.get("subtopics", [])
 
-            # Initialize beliefs in session state
-            if "beliefs" not in st.session_state:
-                st.session_state.beliefs = {}
+        # Initialize beliefs in session state
+        if "beliefs" not in st.session_state:
+            st.session_state.beliefs = {}
 
-            if 'question_counts' not in st.session_state:
-                st.session_state.question_counts = {}
+        if 'question_counts' not in st.session_state:
+            st.session_state.question_counts = {}
 
-            for tag in subtopics:
-                st.session_state.beliefs[tag] = 0.5 
-                st.session_state.question_counts[tag] = 0
+        for tag in subtopics:
+            st.session_state.beliefs[tag] = 0.5 
+            st.session_state.question_counts[tag] = 0
 
-            return {
-                "topic": topic,
-                "tags": subtopics,
-                "beliefs": st.session_state.beliefs
-            }
+        return {
+            "topic": topic,
+            "tags": subtopics,
+            "beliefs": st.session_state.beliefs
+        }
 
-        except Exception as e:
-            return {
-                "error": str(e),
-                "message": "Failed to generate tags or parse LLM response."
-            }
-    else:
-        pass
-        # return some tags 
+    except Exception as e:
+        return {
+            "error": str(e),
+            "message": "Failed to generate tags or parse LLM response."
+        }
+ 
 
 def generate_question(tag: list,type: str, difficulty: str = "medium"):
     prompt = f"""
