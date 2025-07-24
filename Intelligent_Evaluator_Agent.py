@@ -1,9 +1,3 @@
-
-
-
-
-
-
 import streamlit as st
 import json
 import time
@@ -29,20 +23,28 @@ action_map = {
     "summarize_results": summarize_results
 }
 
-# === LLM Response Stub ===
-class FakeLLMResponse:
-    def __init__(self, content):
-        self.content = content
+# # === LLM Response Stub ===
+# class FakeLLMResponse:
+#     def __init__(self, content):
+#         self.content = content
+
+# def call_llm_agent(messages, actions=None):
+#     return FakeLLMResponse("""**Question 5:** What is the difference between a list and a tuple in Python?
+
+# A) A list is a collection of items that can be changed, while a tuple is a collection of items that cannot be changed  
+# B) A list is a collection of items that cannot be changed, while a tuple is a collection of items that can be changed  
+# C) A list and a tuple are equivalent and can be used interchangeably  
+# D) A list and a tuple are not supported in Python  
+
+# Please respond with the letter of your chosen answer.""")
 
 def call_llm_agent(messages, actions=None):
-    return FakeLLMResponse("""**Question 5:** What is the difference between a list and a tuple in Python?
-
-A) A list is a collection of items that can be changed, while a tuple is a collection of items that cannot be changed  
-B) A list is a collection of items that cannot be changed, while a tuple is a collection of items that can be changed  
-C) A list and a tuple are equivalent and can be used interchangeably  
-D) A list and a tuple are not supported in Python  
-
-Please respond with the letter of your chosen answer.""")
+    # prompt = json.dumps({"messages": messages, "actions": actions or []})
+    completion = client.chat.completions.create(
+        model="meta-llama/Llama-3.1-8B-Instruct",
+        messages=messages
+    )
+    return completion.choices[0].message
 
 # === Utility ===
 def clear_user_input():
@@ -53,10 +55,48 @@ st.set_page_config(page_title="Intelligent Evaluator Agent", layout="centered")
 st.title("🧠 Intelligent Evaluator")
 
 # === Session Initialization ===
+# if "messages" not in st.session_state:
+#     st.session_state.messages = [
+#         {"role": "system", "content": f"You are an intelligent evaluator that tests the user's knowledge on selected topic. Choose actions, ask questions, evaluate responses."}
+#     ]
+
+action_instruction_prompt = """
+You are an intelligent evaluator designed to assess a user's knowledge on a given topic using different question types. 
+You have the ability to call the following actions to assist in evaluation:
+
+1. generate_tags(topic: str) → returns {"topic": str, "tags": List[str], "beliefs": dict}
+   - Generates subtopics/tags for the evaluation based on a main topic.
+
+2. generate_question(tag: list, type: str, difficulty: str = "medium") → returns question object in JSON
+   - Generates a single question of a specified type ("MCQ", "ShortAnswer", "Coding") and difficulty for given tags.
+
+3. evaluate_mcq(choosen_answer: list, correct_answer: list) → returns float
+   - Compares chosen answers against correct ones, returns score.
+
+4. evaluate_short_answer(user_answer: str, correct_answer: str) → returns similarity score string (0.000 to 1.000)
+
+5. run_code_in_sandbox(code: str, testcases: list) → returns test result summary with pass/fail counts and errors
+
+6. update_beliefs(tags: list, score: float) → returns updated belief scores dict
+
+7. summarize_results(beliefs: dict) → returns a string summary of user's strengths and weaknesses.
+
+When you want to call an action, respond exactly in this format:
+
+CALL: action_name {"param1": value1, "param2": value2, ...}
+
+Do NOT include any markdown or commentary around the action call. Only use CALL when you need the result to continue.
+"""
+
 if "messages" not in st.session_state:
     st.session_state.messages = [
-        {"role": "system", "content": "You are an intelligent evaluator that tests the user's knowledge on Python topics. Choose actions, ask questions, evaluate responses."}
+        {
+            "role": "system",
+            "content": action_instruction_prompt.strip()
+        }
     ]
+
+
 if "action_results" not in st.session_state:
     st.session_state.action_results = []
 
@@ -80,23 +120,30 @@ if st.session_state.get("started", False):
     try:
         # Check for action call
         if "CALL:" in content:
+            print("here")
             try:
                 _, rest = content.split("CALL:")
                 action_name, args_json = rest.strip().split(" ", 1)
                 action_name = action_name.strip()
                 args = json.loads(args_json)
-
                 if action_name in action_map:
-                    result = action_name
-                    st.session_state.action_results.append({action_name: result})
+                    try:
+                        # Call the action function with the parsed args
+                        result = action_map[action_name](**args) if isinstance(args, dict) else action_map[action_name]()
 
-                    action_response_msg = {
-                        "role": "action",
-                        "name": action_name,
-                        "content": json.dumps(result)
-                    }
-                    st.session_state.messages.append({"role": "assistant", "content": content})
-                    st.session_state.messages.append(action_response_msg)
+                        # Store the result
+                        st.session_state.action_results.append({action_name: result})
+
+                        # Add the assistant message and action response message
+                        st.session_state.messages.append({"role": "assistant", "content": content})
+                        st.session_state.messages.append({
+                            "role": "action",
+                            "name": action_name,
+                            "content": json.dumps(result)
+                        })
+
+                    except Exception as e:
+                        st.error(f"Error executing action '{action_name}': {e}")
                 else:
                     st.error(f"Action '{action_name}' not recognized.")
             except Exception as e:
@@ -184,13 +231,7 @@ if st.session_state.get("started", False):
 
 # Please respond with the letter of your chosen answer.""")
 
-# # def call_llm_agent(messages, actions=None):
-# #     prompt = json.dumps({"messages": messages, "actions": actions or []})
-# #     completion = client.chat.completions.create(
-# #         model="meta-llama/Llama-3.1-8B-Instruct",
-# #         messages=messages,
-# #     )
-# #     return completion.choices[0].message
+
 
 # # === Streamlit UI ===
 

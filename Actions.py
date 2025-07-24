@@ -95,7 +95,7 @@ If type == "MCQ":
   "question": "<string>",
   "options": ["<opt1>", "<opt2>", "<opt3>", "<opt4>"],
   "type": "MCQ",
-  "correct_answer": "<index as string, e.g. \"0\" or \"2\">",
+  "correct_answer": "[<correctopt1> , <correctopt2> , ..] ",
   "time_limit": 120
 }}
 
@@ -146,6 +146,10 @@ def evaluate_mcq(choosen_answer: list, correct_answer: list):
             score += 1
     return score/len(correct_answer)
 
+from sentence_transformers import SentenceTransformer, util
+
+from sentence_transformers import SentenceTransformer, util
+
 def evaluate_short_answer(user_answer: str, correct_answer: str) -> int:
     """
     Compares two text answers and returns:
@@ -154,14 +158,27 @@ def evaluate_short_answer(user_answer: str, correct_answer: str) -> int:
     """
     # Compute embeddings
     _model = SentenceTransformer("all-MiniLM-L6-v2")
-    embeddings = _model.encode([user_answer, correct_answer], convert_to_tensor=True)
+    embeddings = _model.encode([user_answer, correct_answer], convert_to_tensor=True, device='cpu')
+    
     # Calculate cosine similarity
     sim_score = util.pytorch_cos_sim(embeddings[0], embeddings[1]).item()
     
     # Debug: print score if needed
     # print(f"Similarity score: {sim_score:.3f}")
-    return f"{sim_score:.3f}"
-    # return 1 if sim_score >= 0.5 else 0
+    
+    return 1 if sim_score >= 0.5 else 0
+
+# Example usage
+user_answer = "The capital of France is Paris."
+correct_answer = "Paris is the capital of France."
+print(evaluate_short_answer(user_answer, correct_answer))
+
+
+# Example usage
+user_answer = "The capital of France is Paris."
+correct_answer = "Paris is the capital of France."
+print(evaluate_short_answer(user_answer, correct_answer))
+
 
 def run_code_in_sandbox(code: str, testcases: list):
     temp_dir = tempfile.gettempdir()
