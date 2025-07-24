@@ -168,16 +168,6 @@ def evaluate_short_answer(user_answer: str, correct_answer: str) -> int:
     
     return 1 if sim_score >= 0.5 else 0
 
-# Example usage
-user_answer = "The capital of France is Paris."
-correct_answer = "Paris is the capital of France."
-print(evaluate_short_answer(user_answer, correct_answer))
-
-
-# Example usage
-user_answer = "The capital of France is Paris."
-correct_answer = "Paris is the capital of France."
-print(evaluate_short_answer(user_answer, correct_answer))
 
 
 def run_code_in_sandbox(code: str, testcases: list):

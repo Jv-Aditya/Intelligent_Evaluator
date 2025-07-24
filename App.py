@@ -2,18 +2,20 @@ import streamlit as st
 import time
 import json
 from Actions import *
+from huggingface_hub import InferenceClient
 from dotenv import load_dotenv
 import os
 
-# Load environment variables (for consistency if needed)
+# === LLM Client Setup ===
 load_dotenv()
 hf_token = os.getenv("hf_token")
+client = InferenceClient(provider="fireworks-ai", api_key=hf_token)
 
 # === UI Setup ===
-st.set_page_config(page_title="Intelligent Evaluator (Manual)", layout="centered")
-st.title("🧠 Intelligent Evaluator - Manual Flow")
+st.set_page_config(page_title="🧠 Intelligent Evaluator", layout="centered")
+st.title("🧠 Intelligent Evaluator (LLM-assisted Flow)")
 
-# === Session State Initialization ===
+# === Session Initialization ===
 if "topic" not in st.session_state:
     st.session_state.topic = ""
 if "tags" not in st.session_state:
@@ -22,108 +24,166 @@ if "beliefs" not in st.session_state:
     st.session_state.beliefs = {}
 if "question" not in st.session_state:
     st.session_state.question = {}
-if "score" not in st.session_state:
-    st.session_state.score = None
-if "current_tag" not in st.session_state:
-    st.session_state.current_tag = ""
+if "question_count" not in st.session_state:
+    st.session_state.question_count = 0
+if "max_questions" not in st.session_state:
+    st.session_state.max_questions = 5
 if "step" not in st.session_state:
     st.session_state.step = "start"
+
+# === LLM Helper ===
+def call_llm_for_next_question(tags, beliefs, asked_types):
+    system_prompt = """
+You are an intelligent evaluation planner tasked with generating a high-quality question plan to assess a student's understanding of a technical topic (e.g., Python).
+
+Use the following constraints:
+- Use only the provided list of tags.
+- Choose one or more tags that have not yet been assessed.
+- The question should ideally combine multiple related tags in one prompt to evaluate multiple areas at once.
+- Choose only from these types: "MCQ", "ShortAnswer", or "Coding".
+- Use the "difficulty" field to adapt based on belief strength: start easier for unknown topics, or increase difficulty if belief is high.
+- Create only one question
+- In the whole test 50% should be mcq, 30% 
+
+You must return your plan in **strict JSON format** with the following structure:
+{
+  "tags": ["list", "of", "tags"],
+  "type": "MCQ" | "ShortAnswer" | "Coding",
+  "difficulty": "easy" | "medium" | "hard"
+}
+
+Only return the JSON object. Do not include any commentary, explanation, or markdown formatting.
+"""
+
+    messages = [
+        {"role": "system", "content": system_prompt.strip()},
+        {"role": "user", "content": json.dumps({
+            "tags": tags,
+            "beliefs": beliefs,
+            "asked_types": asked_types
+        })}
+    ]
+
+    response = client.chat.completions.create(
+        model="meta-llama/Llama-3.1-8B-Instruct",
+        messages=messages
+    )
+    print(response)
+    try:
+        return json.loads(response.choices[0].message.content)
+    except Exception as e:
+        st.error(f"Failed to parse LLM response: {e}")
+        return {}
 
 # === Step 1: Enter Topic ===
 if st.session_state.step == "start":
     topic = st.text_input("Enter topic to evaluate:", value="Python")
-    if st.button("Generate Tags"):
-        st.session_state.topic = topic
+    if st.button("Start Test"):
         try:
             result = generate_tags(topic)
+            print(result)
+            st.session_state.topic = topic
             st.session_state.tags = result.get("tags", [])
             st.session_state.beliefs = result.get("beliefs", {})
-            st.session_state.step = "choose_tag"
-            st.success("Tags generated successfully!")
+            st.session_state.asked_types = []
+            st.session_state.step = "next_question"
             st.rerun()
         except Exception as e:
             st.error(f"Error generating tags: {e}")
 
-# === Step 2: Choose Tag and Question Type ===
-elif st.session_state.step == "choose_tag":
-    st.subheader("Step 2: Choose a Tag and Question Type")
-    tag = st.selectbox("Choose a tag to test:", st.session_state.tags)
-    q_type = st.selectbox("Choose question type:", ["MCQ", "ShortAnswer", "Coding"])
-    difficulty = st.selectbox("Difficulty:", ["easy", "medium", "hard"])
-    if st.button("Generate Question"):
-        try:
-            question = generate_question(tag=[tag], type=q_type, difficulty=difficulty)
-            st.session_state.question = question
-            st.session_state.current_tag = tag
-            st.session_state.step = "show_question"
-            st.rerun()
-        except Exception as e:
-            st.error(f"Error generating question: {e}")
-
-# === Step 3: Show Question and Input Answer ===
-elif st.session_state.step == "show_question":
-    st.subheader("Step 3: Answer the Question")
-    q = st.session_state.question
-    print(q)
-    st.markdown(f"**Question:** {q['question']}")
-    q_type = q["type"]
-
-    if q_type == "MCQ":
-        user_answer = st.radio("Choose your answer:", q["options"])
-    elif q_type == "ShortAnswer":
-        user_answer = st.text_input("Enter your answer:")
-    elif q_type == "Coding":
-        user_answer = st.text_area("Write your code:", height=200)
+# === Step 2: LLM picks tag/type → generate question ===
+elif st.session_state.step == "next_question":
+    if st.session_state.question_count >= st.session_state.max_questions:
+        st.session_state.step = "summarize"
+        st.rerun()
     else:
-        st.error("Unknown question type.")
-        user_answer = None
+        decision = call_llm_for_next_question(
+            tags=st.session_state.tags,
+            beliefs=st.session_state.beliefs,
+            asked_types=st.session_state.get("asked_types", [])
+        )
+        print(decision)
+        if decision:
+            try:
+                q = generate_question(
+                    tag=decision["tags"],
+                    type=decision["type"],
+                    difficulty=decision["difficulty"]
+                )
+                st.session_state.question = q
+                st.session_state.current_tag = decision["tags"]
+                st.session_state.asked_types.append(decision["type"])
+                st.session_state.step = "show_question"
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error generating question: {e}")
+        else:
+            st.error("LLM failed to suggest a next question.")
+
+# === Step 3: Show Question and Capture Answer ===
+elif st.session_state.step == "show_question":
+    q = st.session_state.question
+    st.subheader(f"Question {st.session_state.question_count + 1}")
+    st.markdown(f"**{q['question']}**")
+
+    user_answer = None
+
+    # Check if the flag is set to clear the input fields
+    if st.session_state.get("flag", False):
+        if q["type"] == "MCQ":
+            st.session_state["mcq_answer"] = ""
+        elif q["type"] == "ShortAnswer":
+            st.session_state["short_answer"] = ""
+        elif q["type"] == "Coding":
+            st.session_state["coding_answer"] = ""
+        st.session_state.flag = False  # Reset the flag
+
+    if q["type"] == "MCQ":
+        user_answer = st.radio("Choose your answer:", q["options"], key="mcq_answer")
+    elif q["type"] == "ShortAnswer":
+        user_answer = st.text_input("Enter your answer:", key="short_answer")
+    elif q["type"] == "Coding":
+        user_answer = st.text_area("Write your code:", height=200, key="coding_answer")
 
     if st.button("Submit Answer"):
-        score = 0
         try:
-            if q_type == "MCQ":
+            score = 0
+            if q["type"] == "MCQ":
                 score = evaluate_mcq([user_answer], q["correct_answer"])
-            elif q_type == "ShortAnswer":
+            elif q["type"] == "ShortAnswer":
                 score = float(evaluate_short_answer(user_answer, q["correct_answer"]))
-            elif q_type == "Coding":
+            elif q["type"] == "Coding":
                 result = run_code_in_sandbox(user_answer, q["test_cases"])
                 passed = result.get("passed", 0)
                 total = result.get("total", 1)
                 score = passed / total
-                st.write("Test Results:", result)
-            else:
-                st.error("Invalid question type for evaluation.")
+                st.write("Code Result:", result)
+            
+            # Update beliefs
+            updated = update_beliefs(tags=st.session_state.current_tag, score=score)
+            st.session_state.beliefs = updated
 
-            st.session_state.score = score
-            st.session_state.step = "update_beliefs"
+            st.success("✅ Submitted successfully")
+
+            # Set the flag to clear input fields
+            st.session_state.flag = True
+
+            # Next question
+            st.session_state.question_count += 1
+            st.session_state.step = "next_question"
             st.rerun()
         except Exception as e:
-            st.error(f"Error evaluating answer: {e}")
+            st.error(f"Error during evaluation: {e}")
 
-# === Step 4: Update Beliefs ===
-elif st.session_state.step == "update_beliefs":
-    tag = st.session_state.current_tag
-    score = st.session_state.score
-    try:
-        updated_beliefs = update_beliefs(tags=[tag], score=score)
-        st.session_state.beliefs = updated_beliefs
-        st.success(f"Your score for this question: {round(score * 100, 2)}%")
-        if st.button("Ask another question"):
-            st.session_state.step = "choose_tag"
-            st.rerun()
-        if st.button("Finish Evaluation"):
-            st.session_state.step = "summarize"
-            st.rerun()
-    except Exception as e:
-        st.error(f"Failed to update beliefs: {e}")
 
-# === Step 5: Summarize Results ===
+# === Step 4: Summary ===
 elif st.session_state.step == "summarize":
     try:
         summary = summarize_results(st.session_state.beliefs)
-        st.subheader("📊 Final Summary")
+        st.subheader("🧠 Final Evaluation Summary")
         st.markdown(summary)
-        st.write("Belief Scores:", st.session_state.beliefs)
+        st.write("Beliefs:", st.session_state.beliefs)
+
         if st.button("Restart"):
             for key in st.session_state.keys():
                 del st.session_state[key]
