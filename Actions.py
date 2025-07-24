@@ -2,9 +2,20 @@ import json
 from huggingface_hub import InferenceClient
 import streamlit as st
 import os
-
+from dotenv import load_dotenv
+import re
+load_dotenv()
 # === Setup Inference Client ===
 client = InferenceClient(provider="fireworks-ai", api_key=os.getenv("hf_token"))
+def query_llm(prompt):
+    # prompt = json.dumps({"messages": messages, "actions": actions or []})
+    completion = client.chat.completions.create(
+        model="meta-llama/Llama-3.1-8B-Instruct",
+        messages=[
+            {"role": "system", "content": prompt}
+        ],
+    )
+    return completion.choices[0].message["content"]
 
 
 def generate_tags(topic: str):
@@ -60,14 +71,68 @@ def generate_tags(topic: str):
         pass
         # return some tags 
 
-def generate_question(tag: str, type: str, difficulty: str):
-    return {
-        "question": f"What is a {tag} in Python?",
-        "options": ["A", "B", "C", "D"] if type == "MCQ" else [],
-        "type": type,
-        "difficulty": difficulty,
-        "time_limit": 60
-    }
+def generate_question(tag: list,type: str, difficulty: str = "medium"):
+    prompt = f"""
+You are a helpful assistant designed to generate **one** Python assessment question based on the given topics and type and difficulty.
+Inputs :
+- topics: {tag}          
+- type: {type}           
+- difficulty: "{difficulty}"
+
+Specifications:
+- Question difficulty should match the given difficulty.
+- Time limits:
+    • MCQ or ShortAnswer → time_limit = 120
+    • Coding → time_limit = 600
+
+Output:
+Respond **only** with a single JSON object which contain only one questiions using *exactly* this structure and not markdown:
+If type == "MCQ":
+{{
+  "question": "<string>",
+  "options": ["<opt1>", "<opt2>", "<opt3>", "<opt4>"],
+  "type": "MCQ",
+  "correct_answer": "<index as string, e.g. \"0\" or \"2\">",
+  "time_limit": 120
+}}
+
+If type == "ShortAnswer:
+    {{
+    "question": "<string>",
+    "options": [],
+    "type": "ShortAnswer",
+    "correct_answer":"<model answer: 1–2 sentences>",
+    "time_limit": '120'
+    }}
+If type == "Coding":
+    {{
+    "question": "<string>",
+    "options": [],
+    "type": "Coding",
+    "correct_answer": [
+        {{
+            "input": <literal or list/tuple>,
+            "expected_output": <literal or list/tuple>
+        }},
+        // 'include at least 10–20 test cases'
+        ]
+    ,
+    "time_limit": '600'
+    }}
+
+"""
+    
+    # prompt = generate_questions_prompt(tag, difficulty)
+    
+    try:
+        raw_response = query_llm(prompt)
+        cleaned_response = re.sub(r"^```json\s*|\s*```$", "", raw_response.strip())
+        questions = json.loads(cleaned_response)
+        return questions
+    except Exception as e:
+        raise ValueError(f"Failed to parse LLM response: {e}\nRaw:\n{raw_response}")
+
+
 
 def evaluate_mcq(choosen_answer: list, correct_answer: list):
     # need to count the number of corrrect options choosen
@@ -101,16 +166,16 @@ def update_beliefs(tags: list, score: float):
 def summarize_results():
     return "User has strong knowledge in Loops and Functions."
 
-def query_llm(prompt: str) -> str:
-    try:
-        response = client.text_generation(
-            model="accounts/fireworks/models/llama-v3-8b-instruct",
-            prompt=prompt.strip(),
-            max_new_tokens=200,
-            temperature=0.3
-        )
-        return response.strip()
-    except Exception as e:
-        raise RuntimeError(f"LLM query failed: {e}")
+# def query_llm(prompt: str) -> str:
+#     try:
+#         response = client.text_generation(
+#             model="accounts/fireworks/models/llama-v3-8b-instruct",
+#             prompt=prompt.strip(),
+#             max_new_tokens=200,
+#             temperature=0.3
+#         )
+#         return response.strip()
+#     except Exception as e:
+#         raise RuntimeError(f"LLM query failed: {e}")
 
 
