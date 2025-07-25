@@ -8,6 +8,8 @@ import docker
 import uuid
 import tempfile
 from sentence_transformers import SentenceTransformer, util
+import time
+import torch
 
 
 load_dotenv()
@@ -22,6 +24,30 @@ def query_llm(prompt):
         ],
     )
     return completion.choices[0].message["content"]
+
+
+def extract_json(raw_response: str):
+
+    raw = raw_response.strip()
+
+    # Handle markdown code blocks like ```json ... ``` or ``` ...
+    if "```" in raw:
+        _, _, after = raw.partition("```")
+        after = after.strip()
+
+        if after.lower().startswith("json"):
+            after = after[4:].strip()
+
+        if after.endswith("```"):
+            after = after[:-3].strip()
+
+        raw = after
+    raw = raw.replace(": None", ": null")
+    # Attempt JSON parsing
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"❌ Failed to parse JSON:\n{e}\n\nContent:\n{raw}")
 
 
 def generate_tags(topic: str):
@@ -59,7 +85,7 @@ Now generate for topic: {topic}
 
         for tag in subtopics:
             st.session_state.beliefs[tag] = 0.5 
-            st.session_state.question_counts[tag] = 0
+            st.session_state.question_counts[tag] = 1
 
         return {
             "topic": topic,
@@ -77,6 +103,9 @@ Now generate for topic: {topic}
 def generate_question(tag: list,type: str, difficulty: str = "medium"):
     prompt = f"""
 You are a helpful assistant designed to generate **one** Python assessment question based on the given topics and type and difficulty.
+MCQ are option questions where one or more are correct 
+ShortAnswer are question which are meant to test users subject knowledge not code
+Coding are questions which are supposed to ask coding question, to evaluate users appilication of learned knowlege.
 Inputs :
 - topics: {tag}          
 - type: {type}           
@@ -84,12 +113,14 @@ Inputs :
 
 Specifications:
 - Question difficulty should match the given difficulty.
+- The question should me covering those tags.
 - Time limits:
     • MCQ or ShortAnswer → time_limit = 120
     • Coding → time_limit = 600
 
 Output:
-Respond **only** with a single JSON object which contain only one questiions using *exactly* this structure and not markdown:
+Respond only with a single JSON object no more statments just with the object, which contain only one question using exactly the template as below in Md format:
+You are a JSON-compliant assistant. All outputs must be strictly valid JSON using double quotes for keys and string values.
 If type == "MCQ":
 {{
   "question": "<string>",
@@ -104,8 +135,8 @@ If type == "ShortAnswer:
     "question": "<string>",
     "options": [],
     "type": "ShortAnswer",
-    "correct_answer":"<model answer: 1–2 sentences>",
-    "time_limit": '120'
+    "correct_answer":"<model answer: 1-2 sentences>",
+    "time_limit": 120
     }}
 If type == "Coding":
     {{
@@ -117,20 +148,22 @@ If type == "Coding":
             "input": <literal or list/tuple>,
             "expected_output": <literal or list/tuple>
         }},
-        // 'include at least 10–20 test cases'
+        // 'include at least 5-10 test cases'
+        // Testcases shouldn't contain none
         ]
     ,
-    "time_limit": '600'
+    "time_limit": 600
     }}
 
 """
     
     # prompt = generate_questions_prompt(tag, difficulty)
-    
+    raw_response = ""
     try:
         raw_response = query_llm(prompt)
-        cleaned_response = re.sub(r"^```json\s*|\s*```$", "", raw_response.strip())
-        questions = json.loads(cleaned_response)
+        time.sleep(1)
+        print(raw_response)
+        questions = extract_json(raw_response)
         return questions
     except Exception as e:
         raise ValueError(f"Failed to parse LLM response: {e}\nRaw:\n{raw_response}")
@@ -146,9 +179,6 @@ def evaluate_mcq(choosen_answer: list, correct_answer: list):
             score += 1
     return score/len(correct_answer)
 
-from sentence_transformers import SentenceTransformer, util
-
-from sentence_transformers import SentenceTransformer, util
 
 def evaluate_short_answer(user_answer: str, correct_answer: str) -> int:
     """
@@ -159,13 +189,13 @@ def evaluate_short_answer(user_answer: str, correct_answer: str) -> int:
     # Compute embeddings
     _model = SentenceTransformer("all-MiniLM-L6-v2")
     embeddings = _model.encode([user_answer, correct_answer], convert_to_tensor=True, device='cpu')
-    
+   
     # Calculate cosine similarity
     sim_score = util.pytorch_cos_sim(embeddings[0], embeddings[1]).item()
-    
+   
     # Debug: print score if needed
     # print(f"Similarity score: {sim_score:.3f}")
-    
+   
     return 1 if sim_score >= 0.5 else 0
 
 
@@ -237,7 +267,7 @@ def update_beliefs(tags: list, score: float):
 
         # Running mean formula
         new_belief = (current_belief * n + score) / (n + 1)
-
+        print(new_belief)
         # Store updated values
         st.session_state.beliefs[tag] = new_belief
         st.session_state.question_counts[tag] = n + 1

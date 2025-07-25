@@ -5,6 +5,8 @@ from Actions import *
 from huggingface_hub import InferenceClient
 from dotenv import load_dotenv
 import os
+from collections import Counter
+from sentence_transformers import SentenceTransformer, util
 
 # === LLM Client Setup ===
 load_dotenv()
@@ -27,14 +29,23 @@ if "question" not in st.session_state:
 if "question_count" not in st.session_state:
     st.session_state.question_count = 0
 if "max_questions" not in st.session_state:
-    st.session_state.max_questions = 5
+    st.session_state.max_questions = 10
 if "step" not in st.session_state:
     st.session_state.step = "start"
+if "question_counts" not in st.session_state:
+    st.session_state.question_counts = {}
 
 # === LLM Helper ===
 def call_llm_for_next_question(tags, beliefs, asked_types):
-    system_prompt = """
-You are an intelligent evaluation planner tasked with generating a high-quality question plan to assess a student's understanding of a technical topic (e.g., Python).
+    type_counts = Counter(asked_types)
+    total_asked = len(asked_types)
+    max_questions = st.session_state.max_questions
+    mcq_count = type_counts.get("MCQ", 0)
+    short_answer_count = type_counts.get("ShortAnswer", 0)
+    coding_count = type_counts.get("Coding", 0)
+    print(mcq_count,short_answer_count,coding_count)
+    system_prompt = f"""
+You are an intelligent evaluator tasked with generating a high-quality question to assess a student's understanding of a technical topic (e.g., Python).
 
 Use the following constraints:
 - Use only the provided list of tags.
@@ -42,18 +53,27 @@ Use the following constraints:
 - The question should ideally combine multiple related tags in one prompt to evaluate multiple areas at once.
 - Choose only from these types: "MCQ", "ShortAnswer", or "Coding".
 - Use the "difficulty" field to adapt based on belief strength: start easier for unknown topics, or increase difficulty if belief is high.
-- Create only one question
-- In the whole test 50% should be mcq, 30% 
+- Create only one question.
 
-You must return your plan in **strict JSON format** with the following structure:
-{
+Important Distribution Rule:
+- This test will consist of a total of {max_questions} questions.
+- Questions should be distributed approximately as:
+    • 50% MCQ → ~{round(0.5 * max_questions)} questions
+    • 30% ShortAnswer → ~{round(0.3 * max_questions)} questions
+    • 20% Coding → ~{round(0.2 * max_questions)} questions
+- Total questions asked so far: {total_asked}
+- Already asked: {mcq_count} MCQ, {short_answer_count} ShortAnswer, {coding_count} Coding
+- Try to maintain this distribution when generating the next question.
+
+You must return your next question in strict JSON format using the following structure:
+{{
   "tags": ["list", "of", "tags"],
   "type": "MCQ" | "ShortAnswer" | "Coding",
   "difficulty": "easy" | "medium" | "hard"
-}
+}}
 
 Only return the JSON object. Do not include any commentary, explanation, or markdown formatting.
-"""
+""".strip()
 
     messages = [
         {"role": "system", "content": system_prompt.strip()},
@@ -63,12 +83,10 @@ Only return the JSON object. Do not include any commentary, explanation, or mark
             "asked_types": asked_types
         })}
     ]
-
     response = client.chat.completions.create(
         model="meta-llama/Llama-3.1-8B-Instruct",
         messages=messages
     )
-    print(response)
     try:
         return json.loads(response.choices[0].message.content)
     except Exception as e:
@@ -81,7 +99,6 @@ if st.session_state.step == "start":
     if st.button("Start Test"):
         try:
             result = generate_tags(topic)
-            print(result)
             st.session_state.topic = topic
             st.session_state.tags = result.get("tags", [])
             st.session_state.beliefs = result.get("beliefs", {})
@@ -102,7 +119,6 @@ elif st.session_state.step == "next_question":
             beliefs=st.session_state.beliefs,
             asked_types=st.session_state.get("asked_types", [])
         )
-        print(decision)
         if decision:
             try:
                 q = generate_question(
@@ -110,6 +126,7 @@ elif st.session_state.step == "next_question":
                     type=decision["type"],
                     difficulty=decision["difficulty"]
                 )
+                print(q)
                 st.session_state.question = q
                 st.session_state.current_tag = decision["tags"]
                 st.session_state.asked_types.append(decision["type"])
@@ -138,14 +155,40 @@ elif st.session_state.step == "show_question":
             st.session_state["coding_answer"] = ""
         st.session_state.flag = False  # Reset the flag
 
+        # Clear stale answer if it's incompatible
+    user_answer = None
     if q["type"] == "MCQ":
+        if "mcq_answer" in st.session_state and st.session_state.mcq_answer not in q["options"]:
+            del st.session_state["mcq_answer"]
         user_answer = st.radio("Choose your answer:", q["options"], key="mcq_answer")
-    elif q["type"] == "ShortAnswer":
-        user_answer = st.text_input("Enter your answer:", key="short_answer")
-    elif q["type"] == "Coding":
-        user_answer = st.text_area("Write your code:", height=200, key="coding_answer")
 
-    if st.button("Submit Answer"):
+    elif q["type"] == "ShortAnswer":
+        if "short_answer" in st.session_state:
+            del st.session_state["short_answer"]
+        user_answer = st.text_input("Enter your answer:", key="short_answer")
+
+    elif q["type"] == "Coding":
+        if "coding_answer" in st.session_state:
+            del st.session_state["coding_answer"]
+        user_answer = st.text_area("Write your code:", height=200, key="coding_answer")
+    
+    st.session_state.flag = True
+
+    col1, col2 = st.columns([1, 1])
+    submitted = col1.button("✅ Submit Answer")
+    skipped = col2.button("⏭️ Skip Question")
+
+
+    if skipped:
+        st.session_state.beliefs = update_beliefs(tags=st.session_state.current_tag, score=0.0)
+        st.success("Question skipped. Moving to the next one.")
+        st.session_state.question_count += 1
+        st.session_state.flag = True
+        st.session_state.step = "next_question"
+        st.session_state.pop("question_start_time", None)
+        st.rerun()
+
+    if submitted:
         try:
             score = 0
             if q["type"] == "MCQ":
@@ -160,7 +203,12 @@ elif st.session_state.step == "show_question":
                 st.write("Code Result:", result)
             
             # Update beliefs
+            for tag in st.session_state.current_tag:
+                st.session_state.question_counts[tag] +=1
+            st.session_state.question_count += 1
+            st.session_state.step = "next_question"
             updated = update_beliefs(tags=st.session_state.current_tag, score=score)
+            print(updated)
             st.session_state.beliefs = updated
 
             st.success("✅ Submitted successfully")
@@ -169,8 +217,6 @@ elif st.session_state.step == "show_question":
             st.session_state.flag = True
 
             # Next question
-            st.session_state.question_count += 1
-            st.session_state.step = "next_question"
             st.rerun()
         except Exception as e:
             st.error(f"Error during evaluation: {e}")
