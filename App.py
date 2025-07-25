@@ -167,43 +167,43 @@ if st.session_state.role == "student":
         st.subheader(f"Question {st.session_state.question_count + 1}")
         st.markdown(f"**{q['question']}**")
 
-    # === Timer Setup ===
-    if "question_start_time" not in st.session_state:
-        st.session_state.question_start_time = time.time()
+        # === Timer Setup ===
+        if "question_start_time" not in st.session_state:
+            st.session_state.question_start_time = time.time()
 
-    question_duration = q["time_limit"]
-    elapsed = int(time.time() - st.session_state.question_start_time)
-    remaining = max(question_duration - elapsed, 0)
+        question_duration = q["time_limit"]
+        elapsed = int(time.time() - st.session_state.question_start_time)
+        remaining = max(question_duration - elapsed, 0)
 
-    # === JavaScript Countdown Timer (displays but logic is backend-controlled) ===
-    import streamlit.components.v1 as components
-    components.html(f"""
-        <div id="timer" style="font-size:20px; color:#336699; margin-bottom: 10px;"></div>
-        <script>
-          let countdown = {remaining};
-          let timerElement = document.getElementById("timer");
+        # === JavaScript Countdown Timer (displays but logic is backend-controlled) ===
+        import streamlit.components.v1 as components
+        components.html(f"""
+            <div id="timer" style="font-size:20px; color:#336699; margin-bottom: 10px;"></div>
+            <script>
+            let countdown = {remaining};
+            let timerElement = document.getElementById("timer");
 
-          function updateTimer() {{
-            let minutes = Math.floor(countdown / 60);
-            let seconds = countdown % 60;
-            timerElement.innerHTML = "⏳ Time Remaining: " + 
-              String(minutes).padStart(2, '0') + ":" + 
-              String(seconds).padStart(2, '0');
-            countdown--;
-            if (countdown < 0) {{
-              timerElement.innerHTML = "⏰ Time is up!";
-              clearInterval(timer);
+            function updateTimer() {{
+                let minutes = Math.floor(countdown / 60);
+                let seconds = countdown % 60;
+                timerElement.innerHTML = "⏳ Time Remaining: " + 
+                String(minutes).padStart(2, '0') + ":" + 
+                String(seconds).padStart(2, '0');
+                countdown--;
+                if (countdown < 0) {{
+                timerElement.innerHTML = "⏰ Time is up!";
+                clearInterval(timer);
+                }}
             }}
-          }}
-          updateTimer();
-          let timer = setInterval(updateTimer, 1000);
-        </script>
-    """, height=50)
+            updateTimer();
+            let timer = setInterval(updateTimer, 1000);
+            </script>
+        """, height=50)
 
-    # === Logic Control for Disabling Inputs ===
-    time_up = remaining <= 0
+        # === Logic Control for Disabling Inputs ===
+        time_up = remaining <= 0
 
-    # === Input Setup ===
+        # === Input Setup ===
         user_answer = None
 
         # Check if the flag is set to clear the input fields
@@ -244,8 +244,8 @@ if st.session_state.role == "student":
         submitted = col1.button("✅ Submit Answer", disabled=time_up)
         skipped = col2.button("⏭️ Skip Question")
 
-    if time_up:
-        st.warning("⏰ Time is up! You can only skip this question.")
+        if time_up:
+            st.warning("⏰ Time is up! You can only skip this question.")
 
         if skipped:
             st.session_state.beliefs = update_beliefs(tags=st.session_state.current_tag, score=0.0)
@@ -256,32 +256,32 @@ if st.session_state.role == "student":
             st.session_state.pop("question_start_time", None)
             st.rerun()
 
-    if submitted and not time_up:
-        try:
-            score = 0
-            if q["type"] == "MCQ":
-                score = evaluate_mcq([user_answer], q["correct_answer"])
-            elif q["type"] == "ShortAnswer":
-                score = float(evaluate_short_answer(user_answer, q["correct_answer"]))
-            elif q["type"] == "Coding":
-                result = run_code_in_sandbox(user_answer, q["test_cases"])
-                passed = result.get("passed", 0)
-                total = result.get("total", 1)
-                score = passed / total
-                st.write("Code Result:", result)
+        if submitted and not time_up:
+            try:
+                score = 0
+                if q["type"] == "MCQ":
+                    score = evaluate_mcq([user_answer], q["correct_answer"])
+                elif q["type"] == "ShortAnswer":
+                    score = float(evaluate_short_answer(user_answer, q["correct_answer"]))
+                elif q["type"] == "Coding":
+                    result = run_code_in_sandbox(user_answer, q["test_cases"])
+                    passed = result.get("passed", 0)
+                    total = result.get("total", 1)
+                    score = passed / total
+                    st.write("Code Result:", result)
 
-            for tag in st.session_state.current_tag:
-                st.session_state.question_counts[tag] += 1
-            st.session_state.question_count += 1
-            st.session_state.step = "next_question"
-            updated = update_beliefs(tags=st.session_state.current_tag, score=score)
-            st.session_state.beliefs = updated
-            st.success("✅ Submitted successfully")
-            st.session_state.flag = True
-            st.session_state.pop("question_start_time", None)
-            st.rerun()
-        except Exception as e:
-            st.error(f"Error during evaluation: {e}")
+                for tag in st.session_state.current_tag:
+                    st.session_state.question_counts[tag] += 1
+                st.session_state.question_count += 1
+                st.session_state.step = "next_question"
+                updated = update_beliefs(tags=st.session_state.current_tag, score=score)
+                st.session_state.beliefs = updated
+                st.success("✅ Submitted successfully")
+                st.session_state.flag = True
+                st.session_state.pop("question_start_time", None)
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error during evaluation: {e}")
 
 
 
