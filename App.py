@@ -7,7 +7,8 @@ from dotenv import load_dotenv
 import os
 from collections import Counter
 from sentence_transformers import SentenceTransformer, util
-
+from streamlit_autorefresh import st_autorefresh
+import streamlit.components.v1 as components
 # === LLM Client Setup ===
 load_dotenv()
 hf_token = os.getenv("hf_token")
@@ -138,14 +139,50 @@ elif st.session_state.step == "next_question":
             st.error("LLM failed to suggest a next question.")
 
 # === Step 3: Show Question and Capture Answer ===
+# === Step 3: Show Question and Capture Answer ===
 elif st.session_state.step == "show_question":
     q = st.session_state.question
     st.subheader(f"Question {st.session_state.question_count + 1}")
     st.markdown(f"**{q['question']}**")
 
-    user_answer = None
+    # === Timer Setup ===
+    if "question_start_time" not in st.session_state:
+        st.session_state.question_start_time = time.time()
 
-    # Check if the flag is set to clear the input fields
+    question_duration = q["time_limit"]
+    elapsed = int(time.time() - st.session_state.question_start_time)
+    remaining = max(question_duration - elapsed, 0)
+
+    # === JavaScript Countdown Timer (displays but logic is backend-controlled) ===
+    import streamlit.components.v1 as components
+    components.html(f"""
+        <div id="timer" style="font-size:20px; color:#336699; margin-bottom: 10px;"></div>
+        <script>
+          let countdown = {remaining};
+          let timerElement = document.getElementById("timer");
+
+          function updateTimer() {{
+            let minutes = Math.floor(countdown / 60);
+            let seconds = countdown % 60;
+            timerElement.innerHTML = "⏳ Time Remaining: " + 
+              String(minutes).padStart(2, '0') + ":" + 
+              String(seconds).padStart(2, '0');
+            countdown--;
+            if (countdown < 0) {{
+              timerElement.innerHTML = "⏰ Time is up!";
+              clearInterval(timer);
+            }}
+          }}
+          updateTimer();
+          let timer = setInterval(updateTimer, 1000);
+        </script>
+    """, height=50)
+
+    # === Logic Control for Disabling Inputs ===
+    time_up = remaining <= 0
+
+    # === Input Setup ===
+    user_answer = None
     if st.session_state.get("flag", False):
         if q["type"] == "MCQ":
             st.session_state["mcq_answer"] = ""
@@ -153,31 +190,32 @@ elif st.session_state.step == "show_question":
             st.session_state["short_answer"] = ""
         elif q["type"] == "Coding":
             st.session_state["coding_answer"] = ""
-        st.session_state.flag = False  # Reset the flag
+        st.session_state.flag = False
 
-        # Clear stale answer if it's incompatible
-    user_answer = None
     if q["type"] == "MCQ":
         if "mcq_answer" in st.session_state and st.session_state.mcq_answer not in q["options"]:
             del st.session_state["mcq_answer"]
-        user_answer = st.radio("Choose your answer:", q["options"], key="mcq_answer")
+        user_answer = st.radio("Choose your answer:", q["options"], key="mcq_answer", disabled=time_up)
 
     elif q["type"] == "ShortAnswer":
         if "short_answer" in st.session_state:
             del st.session_state["short_answer"]
-        user_answer = st.text_input("Enter your answer:", key="short_answer")
+        user_answer = st.text_input("Enter your answer:", key="short_answer", disabled=time_up)
 
     elif q["type"] == "Coding":
         if "coding_answer" in st.session_state:
             del st.session_state["coding_answer"]
-        user_answer = st.text_area("Write your code:", height=200, key="coding_answer")
-    
+        user_answer = st.text_area("Write your code:", height=200, key="coding_answer", disabled=time_up)
+
     st.session_state.flag = True
 
+    # === Submission Buttons ===
     col1, col2 = st.columns([1, 1])
-    submitted = col1.button("✅ Submit Answer")
+    submitted = col1.button("✅ Submit Answer", disabled=time_up)
     skipped = col2.button("⏭️ Skip Question")
 
+    if time_up:
+        st.warning("⏰ Time is up! You can only skip this question.")
 
     if skipped:
         st.session_state.beliefs = update_beliefs(tags=st.session_state.current_tag, score=0.0)
@@ -188,7 +226,7 @@ elif st.session_state.step == "show_question":
         st.session_state.pop("question_start_time", None)
         st.rerun()
 
-    if submitted:
+    if submitted and not time_up:
         try:
             score = 0
             if q["type"] == "MCQ":
@@ -201,25 +239,20 @@ elif st.session_state.step == "show_question":
                 total = result.get("total", 1)
                 score = passed / total
                 st.write("Code Result:", result)
-            
-            # Update beliefs
+
             for tag in st.session_state.current_tag:
-                st.session_state.question_counts[tag] +=1
+                st.session_state.question_counts[tag] += 1
             st.session_state.question_count += 1
             st.session_state.step = "next_question"
             updated = update_beliefs(tags=st.session_state.current_tag, score=score)
-            print(updated)
             st.session_state.beliefs = updated
-
             st.success("✅ Submitted successfully")
-
-            # Set the flag to clear input fields
             st.session_state.flag = True
-
-            # Next question
+            st.session_state.pop("question_start_time", None)
             st.rerun()
         except Exception as e:
             st.error(f"Error during evaluation: {e}")
+
 
 
 # === Step 4: Summary ===
