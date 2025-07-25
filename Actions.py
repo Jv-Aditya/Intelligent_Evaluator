@@ -106,6 +106,7 @@ You are a helpful assistant designed to generate **one** Python assessment quest
 MCQ are option questions where one or more are correct 
 ShortAnswer are question which are meant to test users subject knowledge not code
 Coding are questions which are supposed to ask coding question, to evaluate users appilication of learned knowlege.
+- The question should ideally combine multiple related tags in one prompt to evaluate multiple areas at once.
 Inputs :
 - topics: {tag}          
 - type: {type}           

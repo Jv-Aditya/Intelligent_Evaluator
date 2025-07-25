@@ -6,7 +6,7 @@ from huggingface_hub import InferenceClient
 from dotenv import load_dotenv
 import os
 from collections import Counter
-from sentence_transformers import SentenceTransformer, util
+from streamlit_ace import st_ace
 
 # === LLM Client Setup ===
 load_dotenv()
@@ -46,32 +46,29 @@ def call_llm_for_next_question(tags, beliefs, asked_types):
     print(mcq_count,short_answer_count,coding_count)
     system_prompt = f"""
 You are an intelligent evaluator tasked with generating a high-quality question to assess a student's understanding of a technical topic (e.g., Python).
-
+ 
 Use the following constraints:
 - Use only the provided list of tags.
 - Choose one or more tags that have not yet been assessed.
-- The question should ideally combine multiple related tags in one prompt to evaluate multiple areas at once.
-- Choose only from these types: "MCQ", "ShortAnswer", or "Coding".
 - Use the "difficulty" field to adapt based on belief strength: start easier for unknown topics, or increase difficulty if belief is high.
-- Create only one question.
-
+- Create only one set of tags for a single question
+ 
 Important Distribution Rule:
 - This test will consist of a total of {max_questions} questions.
-- Questions should be distributed approximately as:
-    • 50% MCQ → ~{round(0.5 * max_questions)} questions
-    • 30% ShortAnswer → ~{round(0.3 * max_questions)} questions
-    • 20% Coding → ~{round(0.2 * max_questions)} questions
+- Questions should be distributed as:
+    • 50% MCQ →  questions
+    • 30% ShortAnswer →  questions
+    • 20% Coding →  questions
 - Total questions asked so far: {total_asked}
 - Already asked: {mcq_count} MCQ, {short_answer_count} ShortAnswer, {coding_count} Coding
-- Try to maintain this distribution when generating the next question.
-
+ 
 You must return your next question in strict JSON format using the following structure:
 {{
   "tags": ["list", "of", "tags"],
   "type": "MCQ" | "ShortAnswer" | "Coding",
   "difficulty": "easy" | "medium" | "hard"
 }}
-
+ 
 Only return the JSON object. Do not include any commentary, explanation, or markdown formatting.
 """.strip()
 
@@ -146,10 +143,10 @@ elif st.session_state.step == "show_question":
     user_answer = None
 
     # Check if the flag is set to clear the input fields
-    if st.session_state.get("flag", False):
-        if q["type"] == "MCQ":
-            st.session_state["mcq_answer"] = ""
-        elif q["type"] == "ShortAnswer":
+    if st.session_state.get("flag", True):
+        # if q["type"] == "MCQ":
+        #     st.session_state["mcq_answer"] = ""
+        if q["type"] == "ShortAnswer":
             st.session_state["short_answer"] = ""
         elif q["type"] == "Coding":
             st.session_state["coding_answer"] = ""
@@ -158,19 +155,23 @@ elif st.session_state.step == "show_question":
         # Clear stale answer if it's incompatible
     user_answer = None
     if q["type"] == "MCQ":
-        if "mcq_answer" in st.session_state and st.session_state.mcq_answer not in q["options"]:
-            del st.session_state["mcq_answer"]
-        user_answer = st.radio("Choose your answer:", q["options"], key="mcq_answer")
+        user_answer = st.selectbox("📝 Choose your answer:", q["options"], key="mcq_answer")
 
     elif q["type"] == "ShortAnswer":
-        if "short_answer" in st.session_state:
-            del st.session_state["short_answer"]
         user_answer = st.text_input("Enter your answer:", key="short_answer")
 
     elif q["type"] == "Coding":
-        if "coding_answer" in st.session_state:
-            del st.session_state["coding_answer"]
-        user_answer = st.text_area("Write your code:", height=200, key="coding_answer")
+        st.markdown("✍️ **Please write your code inside a function named `solution` and return the expected result.**")
+        st.markdown("Example:")
+        st.code("def solution(...):\n    # your logic here\n    return result", language="python")
+        user_answer = st_ace(
+        value=st.session_state["coding_answer"],
+        language="python",  
+        theme="monokai",
+        key="coding_answer",
+        height=200,
+        auto_update=True,
+    )
     
     st.session_state.flag = True
 
