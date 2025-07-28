@@ -61,6 +61,9 @@ if st.session_state.role == "student":
     if "question_counts" not in st.session_state:
         st.session_state.question_counts = {}
 
+    def end_test():
+        st.session_state.step = "summarize"
+
     # === LLM Helper ===
     def call_llm_for_next_question(tags, beliefs, asked_types):
         type_counts = Counter(asked_types)
@@ -245,9 +248,15 @@ if st.session_state.role == "student":
         st.session_state.flag = True
 
     # === Submission Buttons ===
-        col1, col2 = st.columns([1, 1])
+        col1, col2, col3 = st.columns([1, 1, 1])
         submitted = col1.button("Submit Answer", disabled=time_up)
         skipped = col2.button("Skip Question")
+        End_test = col3.button("End Test")
+        if End_test:
+            end_test()
+        # if st.button("End Test", on_click=end_test, key="end_test"):
+        #     st.rerun()
+
 
         if time_up:
             st.warning("Time is up! You can only skip this question.")
