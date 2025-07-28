@@ -241,7 +241,8 @@ if st.session_state.role == "student":
             height=200,
             auto_update=True,
         )
-        
+        if "test_cases" in q:
+            st.json(q["test_cases"])
         st.session_state.flag = True
 
     # === Submission Buttons ===
@@ -260,14 +261,20 @@ if st.session_state.role == "student":
             st.session_state.step = "next_question"
             st.session_state.pop("question_start_time", None)
             st.rerun()
-
+        def scoretotext(score):
+            if score == 1:
+                return "Correct Answer"
+            else:
+                return "Wrong Answer"
         if submitted and not time_up:
             try:
                 score = 0
                 if q["type"] == "MCQ":
                     score = evaluate_mcq([user_answer], q["correct_answer"])
+                    st.write("Evaluation , ", scoretotext(score))
                 elif q["type"] == "ShortAnswer":
                     score = float(evaluate_short_answer(user_answer, q["correct_answer"]))
+                    st.write("Evaluation , ", scoretotext(score))
                 elif q["type"] == "Coding":
                     result = run_code_in_sandbox(user_answer, q["test_cases"])
                     passed = result.get("passed", 0)
