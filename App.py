@@ -18,17 +18,17 @@ if "role" not in st.session_state:
 
 # === Role Selection Page ===
 if st.session_state.role is None:
-    st.set_page_config(page_title="🧠 Intelligent Evaluator", layout="centered")
-    st.title("👋 Welcome to the Intelligent Evaluation Platform")
+    st.set_page_config(page_title="Intelligent Evaluator", layout="centered")
+    st.title("Welcome to the Intelligent Evaluation Platform")
 
     st.subheader("Please select your role:")
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("🧑‍🎓 I'm a Student"):
+        if st.button("I'm a Student"):
             st.session_state.role = "student"
             st.rerun()
     with col2:
-        if st.button("🧑‍🏫 I'm an SME"):
+        if st.button("I'm an SME"):
             st.session_state.role = "sme"
             st.rerun()
 
@@ -40,8 +40,8 @@ if st.session_state.role == "student":
     client = InferenceClient(provider="fireworks-ai", api_key=hf_token)
 
     # === UI Setup ===
-    st.set_page_config(page_title="🧠 Intelligent Evaluator", layout="centered")
-    st.title("🧠 Intelligent Evaluator (LLM-assisted Flow)")
+    st.set_page_config(page_title="Intelligent Evaluator", layout="centered")
+    st.title("Intelligent Evaluator (LLM-assisted Flow)")
 
     # === Session Initialization ===
     if "topic" not in st.session_state:
@@ -106,14 +106,16 @@ if st.session_state.role == "student":
                 "asked_types": asked_types
             })}
         ]
-        response = client.chat.completions.create(
+        
+        try:
+            response = client.chat.completions.create(
             model="meta-llama/Llama-3.1-8B-Instruct",
             messages=messages
-        )
-        try:
+            )
             return json.loads(response.choices[0].message.content)
         except Exception as e:
-            st.error(f"Failed to parse LLM response: {e}")
+            print(f"Failed to parse LLM response: {e}")
+            st.error(f"Error in generating the question please restart the test.")
             return {}
 
     # === Step 1: Enter Topic ===
@@ -129,7 +131,8 @@ if st.session_state.role == "student":
                 st.session_state.step = "next_question"
                 st.rerun()
             except Exception as e:
-                st.error(f"Error generating tags: {e}")
+                print(f"Error generating tags: {e}")
+                st.error(f"Error in generating the question please restart the test.")
 
     # === Step 2: LLM picks tag/type → generate question ===
     elif st.session_state.step == "next_question":
@@ -156,9 +159,11 @@ if st.session_state.role == "student":
                     st.session_state.step = "show_question"
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Error generating question: {e}")
+                    print(f"Error generating question: {e}")
+                    st.error(f"Error in generating the question please restart the test.")
             else:
-                st.error("LLM failed to suggest a next question.")
+                print("LLM failed to suggest a next question.")
+                st.error(f"Error in generating the question please restart the test.")
 
 # === Step 3: Show Question and Capture Answer ===
     # === Step 3: Show Question and Capture Answer ===
@@ -186,12 +191,12 @@ if st.session_state.role == "student":
             function updateTimer() {{
                 let minutes = Math.floor(countdown / 60);
                 let seconds = countdown % 60;
-                timerElement.innerHTML = "⏳ Time Remaining: " + 
+                timerElement.innerHTML = "Time Remaining: " + 
                 String(minutes).padStart(2, '0') + ":" + 
                 String(seconds).padStart(2, '0');
                 countdown--;
                 if (countdown < 0) {{
-                timerElement.innerHTML = "⏰ Time is up!";
+                timerElement.innerHTML = "Time is up!";
                 clearInterval(timer);
                 }}
             }}
@@ -219,13 +224,13 @@ if st.session_state.role == "student":
             # Clear stale answer if it's incompatible
         user_answer = None
         if q["type"] == "MCQ":
-            user_answer = st.selectbox("📝 Choose your answer:", q["options"], key="mcq_answer")
+            user_answer = st.selectbox("Choose your answer:", q["options"], key="mcq_answer")
 
         elif q["type"] == "ShortAnswer":
             user_answer = st.text_input("Enter your answer:", key="short_answer")
 
         elif q["type"] == "Coding":
-            st.markdown("✍️ **Please write your code inside a function named `solution` and return the expected result.**")
+            st.markdown("**Please write your code inside a function named `solution` and return the expected result.**")
             st.markdown("Example:")
             st.code("def solution(...):\n    # your logic here\n    return result", language="python")
             user_answer = st_ace(
@@ -241,11 +246,11 @@ if st.session_state.role == "student":
 
     # === Submission Buttons ===
         col1, col2 = st.columns([1, 1])
-        submitted = col1.button("✅ Submit Answer", disabled=time_up)
-        skipped = col2.button("⏭️ Skip Question")
+        submitted = col1.button("Submit Answer", disabled=time_up)
+        skipped = col2.button("Skip Question")
 
         if time_up:
-            st.warning("⏰ Time is up! You can only skip this question.")
+            st.warning("Time is up! You can only skip this question.")
 
         if skipped:
             st.session_state.beliefs = update_beliefs(tags=st.session_state.current_tag, score=0.0)
@@ -276,12 +281,13 @@ if st.session_state.role == "student":
                 st.session_state.step = "next_question"
                 updated = update_beliefs(tags=st.session_state.current_tag, score=score)
                 st.session_state.beliefs = updated
-                st.success("✅ Submitted successfully")
+                st.success("Submitted successfully")
                 st.session_state.flag = True
                 st.session_state.pop("question_start_time", None)
                 st.rerun()
             except Exception as e:
-                st.error(f"Error during evaluation: {e}")
+                print(f"Error during evaluation: {e}")
+                st.error(f"Error in generating the question please restart the test.")
 
 
 
@@ -289,7 +295,7 @@ if st.session_state.role == "student":
     elif st.session_state.step == "summarize":
         try:
             summary = summarize_results(st.session_state.beliefs)
-            st.subheader("🧠 Final Evaluation Summary")
+            st.subheader("Final Evaluation Summary")
             st.markdown(summary)
             st.write("Beliefs:", st.session_state.beliefs)
 
@@ -298,37 +304,39 @@ if st.session_state.role == "student":
                     del st.session_state[key]
                 st.rerun()
         except Exception as e:
-            st.error(f"Failed to summarize results: {e}")
+            print(f"Failed to summarize results: {e}")
+            st.error(f"Error in generating the question please restart the test.")
 if st.session_state.role == "sme":
-    st.set_page_config(page_title="🔥 Firecrawl Quiz Generator", layout="centered")
-    st.title("🌐 Web-Based Intelligent Quiz Generator")
+    st.set_page_config(page_title="Firecrawl Quiz Generator", layout="centered")
+    st.title("Web-Based Intelligent Quiz Generator")
 
     if "step" not in st.session_state:
         st.session_state.step = "input"
 
     if st.session_state.step == "input":
         st.markdown("Enter one or more comma-separated URLs to generate a quiz from the content.")
-        urls_input = st.text_area("🔗 URLs (comma-separated):")
-        num_q = st.number_input("🧠 Number of questions", min_value=1, max_value=20, value=5)
+        urls_input = st.text_area("URLs (comma-separated):")
+        num_q = st.number_input("Number of questions", min_value=1, max_value=20, value=5)
 
-        if st.button("🚀 Generate Quiz"):
+        if st.button("Generate Quiz"):
             urls = [u.strip() for u in urls_input.split(",") if u.strip()]
             if not urls:
                 st.warning("Please enter at least one valid URL.")
             else:
-                with st.spinner("🔍 Scraping websites..."):
+                with st.spinner("Scraping websites..."):
                     content = scrape_multiple(urls)
                 try:
-                    with st.spinner("🤖 Generating quiz using LLM..."):
+                    with st.spinner("Generating quiz using LLM..."):
                         quiz = call_llm_generate(content, num_questions=num_q)
                         st.session_state.quiz = quiz
                         st.session_state.step = "quiz"
                         st.rerun()
                 except Exception as e:
-                    st.error(f"❌ Failed to generate quiz: {e}")
+                    print(f"Failed to generate quiz: {e}")
+                    st.error(f"Error in generating the question please restart the test.")
 
     elif st.session_state.step == "quiz":
-        st.subheader("📋 Quiz Questions")
+        st.subheader("Quiz Questions")
         quiz = st.session_state.quiz
 
         for idx, q in enumerate(quiz, start=1):
@@ -345,12 +353,12 @@ if st.session_state.role == "sme":
 
             st.markdown("---")
 
-        if st.button("🔁 Start Over"):
+        if st.button("Start Over"):
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             st.rerun()
 if st.session_state.role in ["student", "sme"]:
-    if st.button("🔙 Go Back to Role Selection"):
+    if st.button("Go Back to Role Selection"):
         for key in list(st.session_state.keys()):
             del st.session_state[key]
         st.rerun()

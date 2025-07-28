@@ -17,13 +17,16 @@ load_dotenv()
 client = InferenceClient(provider="fireworks-ai", api_key=os.getenv("hf_token"))
 def query_llm(prompt):
     # prompt = json.dumps({"messages": messages, "actions": actions or []})
-    completion = client.chat.completions.create(
-        model="meta-llama/Llama-3.1-8B-Instruct",
-        messages=[
-            {"role": "system", "content": prompt}
-        ],
-    )
-    return completion.choices[0].message["content"]
+    try:
+        completion = client.chat.completions.create(
+            model="meta-llama/Llama-3.1-8B-Instruct",
+            messages=[
+                {"role": "system", "content": prompt}
+            ],
+        )
+        return completion.choices[0].message["content"]
+    except:
+        return {'Error generating the question.'}
 
 
 def extract_json(raw_response: str):
@@ -47,7 +50,8 @@ def extract_json(raw_response: str):
     try:
         return json.loads(raw)
     except json.JSONDecodeError as e:
-        raise ValueError(f"❌ Failed to parse JSON:\n{e}\n\nContent:\n{raw}")
+        print(f"Failed to parse JSON:\n{e}\n\nContent:\n{raw}")
+        raise ValueError(f"Error in generating the question please restart the test.")
 
 
 def generate_tags(topic: str):
@@ -167,7 +171,8 @@ If type == "Coding":
         questions = extract_json(raw_response)
         return questions
     except Exception as e:
-        raise ValueError(f"Failed to parse LLM response: {e}\nRaw:\n{raw_response}")
+        print(f"Failed to parse LLM response: {e}\nRaw:\n{raw_response}")
+        raise ValueError(f"Error in generating the question please restart the test.")
 
 
 
