@@ -38,13 +38,13 @@ def scrape_multiple(urls: list) -> str:
             texts.append(f"[ERROR scraping {url}]: {e}")
     return "\n\n".join(texts)
  
-def call_llm_generate(content: str, num_questions=5):
+def call_llm_generate(content: str, num_questions=5, question_types=["MCQ"]):
     """Generate a list of quiz questions from scraped content."""
     prompt = f"""
 You are a helpful quiz generator assistant.
  
 From the text content below, generate {num_questions} quiz questions.
-Use different types: MCQ, ShortAnswer, and Coding.
+Use types: {question_types}.
  
 Return a JSON array like this:
  
