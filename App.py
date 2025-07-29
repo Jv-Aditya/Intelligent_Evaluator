@@ -365,7 +365,7 @@ if st.session_state.role == "sme":
             elif q["type"] == "Coding":
                 st.text_area("Write Code:", key=f"code_{idx}")
                 if "test_cases" in q:
-                    st.json(q["test_cases"][0])
+                    st.json(q["test_cases"])
 
             st.markdown("---")
 

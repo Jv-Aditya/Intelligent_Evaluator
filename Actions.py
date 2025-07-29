@@ -30,7 +30,7 @@ def query_llm(prompt):
 
 
 def extract_json(raw_response: str):
-    print(raw_response)
+
     raw = raw_response.strip()
 
     # Handle markdown code blocks like ```json ... ``` or ``` ...
