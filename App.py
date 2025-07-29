@@ -319,16 +319,46 @@ if st.session_state.role == "sme":
     st.set_page_config(page_title="Firecrawl Quiz Generator", layout="centered")
     st.title("Web-Based Intelligent Quiz Generator")
 
+    # Hardcoded topic URLs
+    topic_urls = {
+        "Python": ["https://realpython.com/", "https://docs.python.org/3/tutorial/"],
+        "Java": ["https://www.geeksforgeeks.org/java/", "https://docs.oracle.com/javase/tutorial/"],
+        "C++": ["https://cplusplus.com/doc/tutorial/", "https://www.geeksforgeeks.org/c-plus-plus/"]
+    }
+
     if "step" not in st.session_state:
         st.session_state.step = "input"
 
     if st.session_state.step == "input":
+        # Multi-select for topics
+        selected_topics = st.multiselect("Select one or more topics (optional):", list(topic_urls.keys()))
+
+        # Initialize or update session state for urls_input
+        if "urls_input" not in st.session_state:
+            st.session_state.urls_input = ""
+
+        # Auto-fill links based on selected topics
+        if selected_topics:
+            combined_links = []
+            for topic in selected_topics:
+                combined_links.extend(topic_urls.get(topic, []))
+            st.session_state.urls_input = ", ".join(combined_links)
+
+        # Text area for URLs
         st.markdown("Enter one or more comma-separated URLs to generate a quiz from the content.")
-        urls_input = st.text_area("URLs (comma-separated):")
+        st.session_state.urls_input = st.text_area(
+            "Custom Links (comma-separated):",
+            value=st.session_state.urls_input,
+            height=100
+        )
+
+        question_types_available = ["MCQ", "ShortAnswer", "Coding"]
+        selected_qtypes = st.multiselect("Select question types to generate:", question_types_available)
+        
         num_q = st.number_input("Number of questions", min_value=1, max_value=20, value=5)
 
         if st.button("Generate Quiz"):
-            urls = [u.strip() for u in urls_input.split(",") if u.strip()]
+            urls = [u.strip() for u in st.session_state.urls_input.split(",") if u.strip()]
             if not urls:
                 st.warning("Please enter at least one valid URL.")
             else:
@@ -336,13 +366,13 @@ if st.session_state.role == "sme":
                     content = scrape_multiple(urls)
                 try:
                     with st.spinner("Generating quiz using LLM..."):
-                        quiz = call_llm_generate(content, num_questions=num_q)
+                        quiz = call_llm_generate(content, num_questions=num_q,question_types=selected_qtypes)
                         st.session_state.quiz = quiz
                         st.session_state.step = "quiz"
                         st.rerun()
                 except Exception as e:
                     print(f"Failed to generate quiz: {e}")
-                    st.error(f"Error in generating the question please restart the test.")
+                    st.error("Error in generating the question. Please restart the test.")
 
     elif st.session_state.step == "quiz":
         st.subheader("Quiz Questions")
